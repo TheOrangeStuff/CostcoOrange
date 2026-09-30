@@ -116,6 +116,8 @@ def test_api_requires_login_and_serves_summary():
     with TestClient(app) as c:
         assert c.get("/api/summary").status_code == 401
         assert c.post("/api/auth/login", json={"username": "mom", "password": "nope"}).status_code == 401
+        # Phone keyboards capitalize the first letter.
+        assert c.post("/api/auth/login", json={"username": "Mom", "password": "correct horse"}).status_code == 200
         token = c.post("/api/auth/login", json={"username": "mom", "password": "correct horse"}).json()["token"]
         h = {"Authorization": f"Bearer {token}"}
         body = c.get("/api/summary", headers=h).json()

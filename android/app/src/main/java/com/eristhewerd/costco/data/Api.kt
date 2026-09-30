@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit
 
 class ApiException(val code: Int, message: String) : IOException(message)
 
+class RedirectedException(val server: String) : IOException("The server moved to $server; use that address")
+
 class Prefs(context: Context) {
     private val sp: SharedPreferences = context.getSharedPreferences("costco", Context.MODE_PRIVATE)
 
@@ -61,6 +63,11 @@ class Api(context: Context) {
     private suspend fun execute(req: Request): String = withContext(Dispatchers.IO) {
         http.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
+            // OkHttp turns a redirected POST into a bodyless GET (e.g. Cloudflare's http -> https 301),
+            // which the server answers with 405. Report where the server actually lives instead.
+            if (req.method != "GET" && resp.priorResponse?.isRedirect == true) {
+                throw RedirectedException(resp.request.url.newBuilder().encodedPath("/").query(null).build().toString())
+            }
             if (!resp.isSuccessful) {
                 val detail = runCatching {
                     AppJson.parseToJsonElement(body).let { (it as? kotlinx.serialization.json.JsonObject)?.get("detail") }
@@ -110,7 +117,13 @@ class Api(context: Context) {
             put("password", password)
             put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
         }
-        val resp = AppJson.decodeFromString(LoginResponse.serializer(), post("/api/auth/login", body.toString()))
+        val json = try {
+            post("/api/auth/login", body.toString())
+        } catch (e: RedirectedException) {
+            prefs.server = e.server
+            post("/api/auth/login", body.toString())
+        }
+        val resp = AppJson.decodeFromString(LoginResponse.serializer(), json)
         prefs.token = resp.token
         prefs.username = username
     }

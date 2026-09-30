@@ -44,7 +44,7 @@ def login(username: str, password: str, device: str | None) -> str:
         raise HTTPException(429, "Too many attempts; try again later")
 
     with db.session() as conn:
-        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
         if not user or not bcrypt.checkpw(password.encode(), user["pw_hash"].encode()):
             _failures[key].append(time.time())
             raise HTTPException(401, "Wrong username or password")
