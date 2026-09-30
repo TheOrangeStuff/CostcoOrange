@@ -44,6 +44,10 @@ docker exec -it -u 99:100 costcoorange python -m app.cli renormalize   # re-pars
 cd backend && ~/.local/bin/uv sync && ~/.local/bin/uv run pytest -q    # local tests
 ```
 
+- Errors: server warnings/tracebacks and the app's error reports (failed API calls, crashes) land
+  in the `logs` table. Read them with any family login:
+  `curl -H "Authorization: Bearer <token>" https://costco.eristhewerd.com/api/logs?limit=50`
+  (`&source=app` or `&source=server` to filter).
 - Data lives in `/data/costco.db` (the appdata share). Back up that folder; never commit it. Raw
   Costco payloads are kept, so history accumulates past Costco's ~2-year window.
 - The first sync backfills 2 years silently; later syncs (every 2 hours) re-scan 45 days and

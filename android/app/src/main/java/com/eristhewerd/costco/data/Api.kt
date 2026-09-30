@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import com.eristhewerd.costco.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
@@ -60,7 +63,33 @@ class Api(context: Context) {
         .url(prefs.server + path)
         .apply { prefs.token?.let { header("Authorization", "Bearer $it") } }
 
-    private suspend fun execute(req: Request): String = withContext(Dispatchers.IO) {
+    private val reportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, app ${BuildConfig.VERSION_NAME})"
+
+    /** Sends an error report to the server's log, best effort and in the background. */
+    fun report(message: String, level: String = "error") {
+        if (prefs.token == null) return
+        val body = buildJsonObject {
+            put("level", level)
+            put("message", message.take(20000))
+            put("device", device)
+        }
+        reportScope.launch {
+            runCatching { http.newCall(request("/api/logs").post(body.toString().toRequestBody(jsonType)).build()).execute().close() }
+        }
+    }
+
+    private suspend fun execute(req: Request): String = try {
+        send(req)
+    } catch (e: IOException) {
+        // Signed-out and unreachable-server failures can't be reported anyway.
+        val unreported = (e is ApiException && e.code == 401) || e is java.net.UnknownHostException ||
+            e is java.net.ConnectException
+        if (!unreported) report("${req.method} ${req.url.encodedPath} failed: $e")
+        throw e
+    }
+
+    private suspend fun send(req: Request): String = withContext(Dispatchers.IO) {
         http.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             // OkHttp turns a redirected POST into a bodyless GET (e.g. Cloudflare's http -> https 301),

@@ -124,3 +124,33 @@ def test_api_requires_login_and_serves_summary():
         assert body["summary"]["total_spend"] == 0
         assert c.get("/api/status", headers=h).json()["costco_linked"] is False
         assert c.get("/api/export.csv", headers=h).text.startswith("date,channel")
+
+
+def test_gateway_error_is_unwrapped():
+    from app.costco_client import _error_detail
+    import json
+    inner = json.dumps({"errorType": "ClientError", "errorMessage": "Error trying to resolve field 'receiptsWithCounts'"})
+    body = json.dumps({"context": {"statusMessage": {"statusCode": "APIGATEWAY.BACKEND.FAULT", "errorCode": "400",
+                                                     "description": {"value": inner}}}})
+    assert _error_detail(body) == "Error trying to resolve field 'receiptsWithCounts'"
+    assert _error_detail("<html>nope</html>") == "<html>nope</html>"
+
+
+def test_logs_collect_app_reports_and_sync_failures():
+    from app.main import app
+
+    class Broken(FakeClient):
+        def list_receipts(self, start, end):
+            raise RuntimeError("Costco said no")
+
+    auth.create_user("dad", "pw")
+    with TestClient(app) as c:
+        token = c.post("/api/auth/login", json={"username": "dad", "password": "pw"}).json()["token"]
+        h = {"Authorization": f"Bearer {token}"}
+        assert c.post("/api/logs", json={"message": "boom"}).status_code == 401
+        assert c.post("/api/logs", headers=h, json={"message": "POST /api/sync failed", "device": "Pixel"}).json()["ok"]
+        assert sync.sync(Broken(), date(2026, 9, 30))["error"] == "Costco said no"
+        logs = c.get("/api/logs", headers=h).json()
+        assert "Costco said no" in logs[0]["message"] and logs[0]["source"] == "server"
+        app_logs = c.get("/api/logs?source=app", headers=h).json()
+        assert [(l["message"], l["username"], l["device"]) for l in app_logs] == [("POST /api/sync failed", "dad", "Pixel")]

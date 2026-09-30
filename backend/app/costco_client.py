@@ -109,6 +109,18 @@ class CostcoAPIError(Exception):
     pass
 
 
+def _error_detail(text: str) -> str:
+    """Pull the backend's own message out of the API gateway's nested JSON error envelope."""
+    try:
+        value = json.loads(text)["context"]["statusMessage"]["description"]["value"]
+    except (ValueError, KeyError, TypeError):
+        return text
+    try:
+        return json.loads(value).get("errorMessage") or value
+    except (ValueError, AttributeError):
+        return value
+
+
 def _token_expired(id_token: str | None, buffer_seconds: int = 120) -> bool:
     if not id_token:
         return True
@@ -227,7 +239,11 @@ class CostcoClient:
                 time.sleep(2 ** attempt)
                 continue
             if resp.status_code != 200:
-                raise CostcoAPIError(f"{endpoint} returned {resp.status_code}: {resp.text[:300]}")
+                logger.warning(
+                    "%s returned %s for variables %s: %s",
+                    endpoint, resp.status_code, json.dumps(variables), resp.text[:5000],
+                )
+                raise CostcoAPIError(f"{endpoint} returned {resp.status_code}: {_error_detail(resp.text)[:500]}")
             body = resp.json()
             if body.get("errors") and not body.get("data"):
                 raise CostcoAPIError(f"GraphQL errors: {json.dumps(body['errors'])[:300]}")

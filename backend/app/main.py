@@ -9,9 +9,9 @@ from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app import analytics, auth, config, costco_client, db, sync
+from app import analytics, auth, config, costco_client, db, logs, sync
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ async def _scheduler() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    logs.install()
     task = asyncio.create_task(_scheduler())
     yield
     task.cancel()
@@ -56,6 +57,12 @@ class LinkBody(BaseModel):
 
 class LabelBody(BaseModel):
     label: str
+
+
+class LogBody(BaseModel):
+    level: str = Field("error", max_length=16)
+    message: str = Field(max_length=20000)
+    device: str | None = Field(None, max_length=200)
 
 
 @app.get("/api/health")
@@ -275,3 +282,23 @@ def export_csv(start: str | None = None, end: str | None = None, user=User):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@app.post("/api/logs")
+def report_log(body: LogBody, user=User):
+    """Error reports from the app."""
+    with db.session() as conn:
+        db.add_log(conn, "app", body.level, body.message, user["username"], body.device)
+    return {"ok": True}
+
+
+@app.get("/api/logs")
+def list_logs(source: str | None = None, limit: int = Query(100, le=2000), user=User):
+    """Recent server warnings/errors and app error reports, newest first."""
+    with db.session() as conn:
+        return [
+            dict(r) for r in conn.execute(
+                "SELECT * FROM logs WHERE ? IS NULL OR source = ? ORDER BY id DESC LIMIT ?",
+                (source, source, limit),
+            )
+        ]

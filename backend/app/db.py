@@ -108,6 +108,15 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     new_orders INTEGER,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source TEXT NOT NULL,               -- server | app
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    username TEXT,
+    device TEXT
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -163,3 +172,16 @@ def add_event(conn: sqlite3.Connection, kind: str, ref: str, title: str, body: s
         (kind, ref, title, body, now_iso()),
     )
     return cur.rowcount > 0
+
+
+# Keep the log table from growing without bound.
+MAX_LOGS = 2000
+
+
+def add_log(conn: sqlite3.Connection, source: str, level: str, message: str,
+            username: str | None = None, device: str | None = None) -> None:
+    cur = conn.execute(
+        "INSERT INTO logs (created_at, source, level, message, username, device) VALUES (?, ?, ?, ?, ?, ?)",
+        (now_iso(), source, level, message, username, device),
+    )
+    conn.execute("DELETE FROM logs WHERE id <= ?", (cur.lastrowid - MAX_LOGS,))
