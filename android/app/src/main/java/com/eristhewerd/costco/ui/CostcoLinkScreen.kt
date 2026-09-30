@@ -2,6 +2,7 @@ package com.eristhewerd.costco.ui
 
 import android.annotation.SuppressLint
 import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Column
@@ -122,10 +123,14 @@ fun CostcoLinkScreen(api: Api, onDone: () -> Unit) {
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webViewClient = WebViewClient()
-                    loadUrl(START_URL)
                     webView = this
+                    // Start from a clean slate: leftover cookies from earlier attempts pile up until
+                    // costco.com rejects the request with "Header Overflow".
+                    WebStorage.getInstance().deleteAllData()
+                    val cookies = CookieManager.getInstance()
+                    cookies.setAcceptThirdPartyCookies(this, true)
+                    cookies.removeAllCookies { cookies.flush(); loadUrl(START_URL) }
                 }
             },
         )
