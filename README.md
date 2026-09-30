@@ -22,12 +22,11 @@ only `read:packages` (fine-grained tokens can't pull from ghcr.io).
 ### Unraid setup (once)
 
 1. Unraid terminal: `docker login ghcr.io -u TheOrangeStuff` (password: the `read:packages` token).
-2. Docker → Add Container:
-   - Name `costcoorange`, Repository `ghcr.io/theorangestuff/costcoorange-backend:latest`
-   - Network type: the custom network NPM is on (so NPM reaches it by name; no port mapping)
-   - Path: container `/data` → host `/mnt/user/appdata/costcoorange`
-   - Variable `TZ` = your timezone (e.g. `America/Chicago`)
-3. NPM proxy host `costco.eristhewerd.com` → scheme `http`, host `costcoorange`, port `8747`,
+2. Save `unraid/my-costcoorange.xml` to the flash drive as
+   `/boot/config/plugins/dockerMan/templates-user/my-costcoorange.xml`.
+3. Docker → Add Container → Template: `costcoorange`. Set Network Type to the custom network NPM
+   is on (the template says `proxynet`), check the appdata path and TZ, Apply.
+   NPM proxy host `costco.eristhewerd.com` → scheme `http`, host `costcoorange`, port `8747`,
    with Block Common Exploits and your usual SSL setup.
 4. Create family logins (runs as the container's user so the database stays writable):
    `docker exec -it -u 99:100 costcoorange python -m app.cli adduser <name>`

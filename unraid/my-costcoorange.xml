@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>costcoorange</Name>
+  <Repository>ghcr.io/theorangestuff/costcoorange-backend:latest</Repository>
+  <Registry>https://github.com/TheOrangeStuff/CostcoOrange/pkgs/container/costcoorange-backend</Registry>
+  <Network>proxynet</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/TheOrangeStuff/CostcoOrange</Support>
+  <Project>https://github.com/TheOrangeStuff/CostcoOrange</Project>
+  <Overview>CostcoOrange backend: syncs the family's Costco receipts and online orders and serves the Android app. Reached through Nginx Proxy Manager at costco.eristhewerd.com (host costcoorange, port 8747), so no port is published. Put it on the same Docker network as NPM.</Overview>
+  <Category>Tools:</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/google/material-design-icons/master/png/action/shopping_cart/materialicons/48dp/2x/baseline_shopping_cart_black_48dp.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/costcoorange" Mode="rw" Description="Database with the full purchase history. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/costcoorange</Config>
+  <Config Name="TZ" Target="TZ" Default="America/Chicago" Mode="" Description="Timezone" Type="Variable" Display="always" Required="false" Mask="false">America/Chicago</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User the server runs as (Unraid nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group the server runs as (Unraid users)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Sync interval (minutes)" Target="COSTCO_SYNC_INTERVAL_MINUTES" Default="120" Mode="" Description="How often to pull new receipts from Costco" Type="Variable" Display="advanced" Required="false" Mask="false">120</Config>
+</Container>
