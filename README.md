@@ -48,6 +48,17 @@ export JAVA_HOME=~/.local/jdk-21
 The login screen's server field defaults to `https://costco.eristhewerd.com`; use
 `http://192.168.20.100:8747` on the LAN before the proxy is set up.
 
+### Releases (Obtainium)
+
+`.github/workflows/android-release.yml` runs on every push to `main` touching `android/`: it builds
+a signed APK and publishes a release (next minor version, `costcoorange-vX.Y.0.apk`) on this
+private repo. In Obtainium, add `https://github.com/TheOrangeStuff/CostcoOrange` and give it a
+GitHub token that can read this repo (fine-grained PAT: this repo only, Contents: read-only).
+
+The signing key is `~/.config/costco/release.jks` with passwords in `~/.config/costco/signing.env`.
+Back it up: losing it means every phone must uninstall to update. Local signed build:
+`set -a; . ~/.config/costco/signing.env; set +a; ./gradlew assembleRelease`.
+
 ### Screenshots against fake data
 
 `ScreenshotTest` renders the real screens with Robolectric/Roborazzi into

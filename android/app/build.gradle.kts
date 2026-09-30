@@ -18,11 +18,26 @@ android {
         buildConfigField("String", "DEFAULT_SERVER", "\"https://costco.eristhewerd.com\"")
     }
 
+    // The release key lives outside the repo (~/.config/costco/release.jks; CI writes it from
+    // secrets). Every release must use the same key, or Android refuses to install it over the last.
+    val releaseKeystore = System.getenv("COSTCO_KEYSTORE")?.let(::file)
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("COSTCO_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("COSTCO_KEY_ALIAS")
+                keyPassword = System.getenv("COSTCO_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
