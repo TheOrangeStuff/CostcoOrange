@@ -9,14 +9,15 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/TheOrangeStuff/CostcoOrange</Support>
   <Project>https://github.com/TheOrangeStuff/CostcoOrange</Project>
-  <Overview>CostcoOrange backend: syncs the family's Costco receipts and online orders and serves the Android app. Reached through Nginx Proxy Manager at costco.eristhewerd.com (host costcoorange, port 8747), so no port is published. Put it on the same Docker network as NPM.</Overview>
+  <Overview>CostcoOrange backend: syncs the family's Costco receipts and online orders and serves the Android app. Reached through Nginx Proxy Manager at costco.eristhewerd.com (host costcoorange, port 7057) when on the same Docker network as NPM; port 7057 is also published on the server for LAN access.</Overview>
   <Category>Tools:</Category>
-  <WebUI/>
+  <WebUI>http://[IP]:[PORT:7057]/api/health</WebUI>
   <TemplateURL/>
   <Icon>https://raw.githubusercontent.com/google/material-design-icons/master/png/action/shopping_cart/materialicons/48dp/2x/baseline_shopping_cart_black_48dp.png</Icon>
   <ExtraParams>--restart=unless-stopped</ExtraParams>
   <PostArgs/>
   <CPUset/>
+  <Config Name="Port" Target="7057" Default="7057" Mode="tcp" Description="API port (the Android app and NPM connect here)" Type="Port" Display="always" Required="true" Mask="false">7057</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/costcoorange" Mode="rw" Description="Database with the full purchase history. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/costcoorange</Config>
   <Config Name="TZ" Target="TZ" Default="America/Chicago" Mode="" Description="Timezone" Type="Variable" Display="always" Required="false" Mask="false">America/Chicago</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User the server runs as (Unraid nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>

@@ -18,10 +18,10 @@ ENV PATH=/app/.venv/bin:$PATH \
     PUID=99 \
     PGID=100
 VOLUME /data
-EXPOSE 8747
+EXPOSE 7057
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8747/api/health')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7057/api/health')"
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8747", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7057", "--proxy-headers", "--forwarded-allow-ips=*"]

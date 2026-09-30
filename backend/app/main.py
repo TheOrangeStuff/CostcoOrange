@@ -1,4 +1,4 @@
-"""HTTP API for the Android app. Run with: uv run uvicorn app.main:app --port 8747"""
+"""HTTP API for the Android app. Run with: uv run uvicorn app.main:app --port 7057"""
 
 import asyncio
 import csv

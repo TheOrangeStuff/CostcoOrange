@@ -26,7 +26,7 @@ only `read:packages` (fine-grained tokens can't pull from ghcr.io).
    `/boot/config/plugins/dockerMan/templates-user/my-costcoorange.xml`.
 3. Docker → Add Container → Template: `costcoorange`. Set Network Type to the custom network NPM
    is on (the template says `proxynet`), check the appdata path and TZ, Apply.
-   NPM proxy host `costco.eristhewerd.com` → scheme `http`, host `costcoorange`, port `8747`,
+   NPM proxy host `costco.eristhewerd.com` → scheme `http`, host `costcoorange`, port `7057`,
    with Block Common Exploits and your usual SSL setup.
 4. Create family logins (runs as the container's user so the database stays writable):
    `docker exec -it -u 99:100 costcoorange python -m app.cli adduser <name>`
@@ -65,7 +65,7 @@ export JAVA_HOME=~/.local/jdk-21
 ```
 
 The login screen's server field defaults to `https://costco.eristhewerd.com`; use
-the public URL is the only way in (the container isn't published on the LAN).
+`http://192.168.1.4:7057` on the LAN.
 
 ### Releases (Obtainium)
 

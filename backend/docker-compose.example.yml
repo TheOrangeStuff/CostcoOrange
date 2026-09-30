@@ -8,8 +8,9 @@ services:
       - /mnt/user/appdata/costcoorange:/data
     environment:
       TZ: America/Chicago
-    # Put it on the same Docker network as Nginx Proxy Manager so NPM can reach it by name;
-    # no port needs publishing to the LAN.
+    ports:
+      - "7057:7057"
+    # On the same Docker network as Nginx Proxy Manager, NPM can reach it by name.
     networks: [proxynet]
 
 networks:
