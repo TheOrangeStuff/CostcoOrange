@@ -11,29 +11,49 @@ Costco changes their site. Personal/family use only.
 
 ## Backend (`backend/`)
 
-FastAPI + SQLite, runs as a systemd **user** service on port **8747** (linger is enabled, so it runs
-without a login). Nginx Proxy Manager fronts it at `costco.eristhewerd.com`.
+FastAPI + SQLite in a Docker container on the Unraid server (192.168.1.4), on the same Docker
+network as Nginx Proxy Manager, which serves it at `costco.eristhewerd.com`.
+
+Every push to `main` touching `backend/` runs the tests and publishes
+`ghcr.io/theorangestuff/costcoorange-backend:latest` (`.github/workflows/backend-image.yml`).
+The package is private, so Unraid logs in to ghcr.io once with a classic GitHub token that has
+only `read:packages` (fine-grained tokens can't pull from ghcr.io).
+
+### Unraid setup (once)
+
+1. Unraid terminal: `docker login ghcr.io -u TheOrangeStuff` (password: the `read:packages` token).
+2. Docker → Add Container:
+   - Name `costcoorange`, Repository `ghcr.io/theorangestuff/costcoorange-backend:latest`
+   - Network type: the custom network NPM is on (so NPM reaches it by name; no port mapping)
+   - Path: container `/data` → host `/mnt/user/appdata/costcoorange`
+   - Variable `TZ` = your timezone (e.g. `America/Chicago`)
+3. NPM proxy host `costco.eristhewerd.com` → scheme `http`, host `costcoorange`, port `8747`,
+   with Block Common Exploits and your usual SSL setup.
+4. Create family logins (runs as the container's user so the database stays writable):
+   `docker exec -it -u 99:100 costcoorange python -m app.cli adduser <name>`
+
+To update: Unraid Docker page → "Check for Updates" → apply. Logs: the container's log view.
+`docker-compose.example.yml` shows the same settings as a compose file.
+
+### Admin and development
 
 ```bash
-cd backend
-~/.local/bin/uv sync                                   # deps into .venv
-~/.local/bin/uv run pytest -q                          # tests
-~/.local/bin/uv run python -m app.cli adduser <name>   # family login (prompts for password)
-~/.local/bin/uv run python -m app.cli sync             # sync now, in the foreground
-systemctl --user restart costco-backend                # after code changes
-journalctl --user -u costco-backend -f                 # logs
+docker exec -it -u 99:100 costcoorange python -m app.cli users
+docker exec -it -u 99:100 costcoorange python -m app.cli sync          # sync now, foreground
+docker exec -it -u 99:100 costcoorange python -m app.cli renormalize   # re-parse stored raw data
+
+cd backend && ~/.local/bin/uv sync && ~/.local/bin/uv run pytest -q    # local tests
 ```
 
-- Data lives in `backend/data/costco.db` (gitignored; never commit it). Raw Costco payloads are
-  kept, so history accumulates past Costco's ~2-year window, and `app.cli renormalize` can
-  re-parse them after a parsing fix.
+- Data lives in `/data/costco.db` (the appdata share). Back up that folder; never commit it. Raw
+  Costco payloads are kept, so history accumulates past Costco's ~2-year window.
 - The first sync backfills 2 years silently; later syncs (every 2 hours) re-scan 45 days and
   create events for new receipts, new online orders and price drops. The app polls
   `/api/events` and turns them into notifications.
 - Costco sign-in: the app opens Costco's login page in a WebView, reads MSAL's refresh token from
   localStorage, and posts it to `/api/costco/link`. The server keeps it (and its rotations) and
   mints bearer tokens as needed. Expect to re-link roughly every 90 days; the server warns at 80.
-- Settings are env vars in `backend/.env` (see `app/config.py`).
+- Settings are env vars on the container (see `app/config.py`).
 
 ## Android (`android/`)
 
@@ -46,7 +66,7 @@ export JAVA_HOME=~/.local/jdk-21
 ```
 
 The login screen's server field defaults to `https://costco.eristhewerd.com`; use
-`http://192.168.20.100:8747` on the LAN before the proxy is set up.
+the public URL is the only way in (the container isn't published on the LAN).
 
 ### Releases (Obtainium)
 

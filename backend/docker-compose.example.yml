@@ -1,0 +1,17 @@
+# Equivalent of the Unraid container settings in README.md.
+services:
+  costcoorange:
+    image: ghcr.io/theorangestuff/costcoorange-backend:latest
+    container_name: costcoorange
+    restart: unless-stopped
+    volumes:
+      - /mnt/user/appdata/costcoorange:/data
+    environment:
+      TZ: America/Chicago
+    # Put it on the same Docker network as Nginx Proxy Manager so NPM can reach it by name;
+    # no port needs publishing to the LAN.
+    networks: [proxynet]
+
+networks:
+  proxynet:
+    external: true
