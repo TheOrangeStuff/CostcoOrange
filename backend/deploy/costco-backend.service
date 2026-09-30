@@ -1,0 +1,14 @@
+[Unit]
+Description=Costco Tracker backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/costco/backend
+EnvironmentFile=-%h/projects/costco/backend/.env
+ExecStart=%h/projects/costco/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8747 --proxy-headers --forwarded-allow-ips=*
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

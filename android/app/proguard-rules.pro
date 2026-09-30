@@ -1,0 +1,4 @@
+-keepattributes *Annotation*, InnerClasses
+-keep,includedescriptorclasses class com.eristhewerd.costco.**$$serializer { *; }
+-keepclassmembers class com.eristhewerd.costco.** { *** Companion; }
+-keepclasseswithmembers class com.eristhewerd.costco.** { kotlinx.serialization.KSerializer serializer(...); }

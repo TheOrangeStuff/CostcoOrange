@@ -1,0 +1,13 @@
+# Family purchase data and secrets never leave this machine
+backend/data/
+backend/.env
+backend/.venv/
+__pycache__/
+.pytest_cache/
+*.jks
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
+.idea/
