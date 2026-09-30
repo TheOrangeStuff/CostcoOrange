@@ -13,7 +13,7 @@ import time
 import jwt
 from curl_cffi import requests as curl_requests
 
-from app import db
+from app import config, db
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,7 @@ USER_AGENT = (
 
 # Azure AD B2C configuration that ships in Costco's own browser bundle.
 TENANT_ID = "e0714dd4-784d-46d6-a278-3e29553483eb"
-POLICY = "b2c_1a_sso_wcs_signup_signin_201"
-TOKEN_ENDPOINT = f"https://signin.costco.com/{TENANT_ID}/{POLICY}/oauth2/v2.0/token"
+TOKEN_ENDPOINT = f"https://signin.costco.com/{TENANT_ID}/{config.B2C_POLICY}/oauth2/v2.0/token"
 MSAL_CLIENT_ID = "a3a5186b-7c89-4b4c-93a8-dd604e930757"
 WCS_CLIENT_ID = "4900eb1f-0c10-4bd9-99c3-c59e6c1ecebf"
 # Static per-app value from Costco's bundle; a random UUID gets a 401.

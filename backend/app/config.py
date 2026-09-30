@@ -8,6 +8,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("COSTCO_DATA_DIR", BACKEND_DIR / "data"))
 DB_PATH = DATA_DIR / "costco.db"
 
+# Costco's Azure AD B2C sign-in policy. Their site bumps the number now and then (201 -> 214 so
+# far); if linking starts failing, check the policy in the site's .../oauth2/v2.0/token request.
+B2C_POLICY = os.environ.get("COSTCO_B2C_POLICY", "b2c_1a_sso_wcs_signup_signin_214")
+
 # How often the background sync runs.
 SYNC_INTERVAL_MINUTES = int(os.environ.get("COSTCO_SYNC_INTERVAL_MINUTES", "120"))
 

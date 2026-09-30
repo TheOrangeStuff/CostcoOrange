@@ -49,8 +49,10 @@ cd backend && ~/.local/bin/uv sync && ~/.local/bin/uv run pytest -q    # local t
 - The first sync backfills 2 years silently; later syncs (every 2 hours) re-scan 45 days and
   create events for new receipts, new online orders and price drops. The app polls
   `/api/events` and turns them into notifications.
-- Costco sign-in: the app opens Costco's login page in a WebView, reads MSAL's refresh token from
-  localStorage, and posts it to `/api/costco/link`. The server keeps it (and its rotations) and
+- Costco sign-in: the app opens Costco's login page in a WebView, captures MSAL's refresh token
+  from the site's own call to the B2C token endpoint (Costco no longer persists it in storage),
+  and posts it to `/api/costco/link`. The B2C policy name changes occasionally; override it with
+  `COSTCO_B2C_POLICY`. The server keeps it (and its rotations) and
   mints bearer tokens as needed. Expect to re-link roughly every 90 days; the server warns at 80.
 - Settings are env vars on the container (see `app/config.py`).
 
