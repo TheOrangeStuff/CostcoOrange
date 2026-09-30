@@ -53,7 +53,6 @@ jobs:
           echo 'smoketest1' | docker exec -i -u 99:100 smoke python -c "from app import auth, db; db.init(); auth.create_user('ci', 'smoketest1')"
           curl -fs -XPOST localhost:8747/api/auth/login -H 'content-type: application/json' \
             -d '{"username":"ci","password":"smoketest1"}' | grep -q token
-          docker exec smoke ps -o user= -p 1 || true
           stat -c '%u:%g' "$RUNNER_TEMP/data/costco.db" | grep -qx 99:100
           docker logs smoke
 
