@@ -131,6 +131,9 @@ def get_summary(start: str | None = None, end: str | None = None, user=User):
             "summary": analytics.summary(conn, start, end),
             "monthly": analytics.monthly(conn, start, end),
             "categories": analytics.categories(conn, start, end),
+            "basket": analytics.basket(conn, start, end),
+            "newness": analytics.newness(conn, start, end),
+            "inflation": analytics.inflation(conn, start, end, date.today()),
         }
 
 
@@ -138,6 +141,12 @@ def get_summary(start: str | None = None, end: str | None = None, user=User):
 def get_insights(start: str | None = None, end: str | None = None, limit: int = Query(10, le=100), user=User):
     with db.session() as conn:
         return analytics.insights(conn, start, end, limit)
+
+
+@app.get("/api/restock")
+def get_restock(user=User):
+    with db.session() as conn:
+        return analytics.restock(conn, date.today())
 
 
 @app.get("/api/price-adjustments")

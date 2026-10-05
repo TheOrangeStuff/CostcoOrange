@@ -69,10 +69,94 @@ data class Category(
 )
 
 @Serializable
+data class TripRef(
+    val barcode: String,
+    val date: String,
+    val warehouse: String? = null,
+    val total: Double = 0.0,
+    val items: Double = 0.0,
+)
+
+@Serializable
+data class TripBucket(val label: String, val trips: Int = 0, val spend: Double = 0.0)
+
+@Serializable
+data class Basket(
+    val trips: Int = 0,
+    @SerialName("avg_total") val avgTotal: Double = 0.0,
+    @SerialName("median_total") val medianTotal: Double = 0.0,
+    @SerialName("avg_items") val avgItems: Double = 0.0,
+    @SerialName("median_items") val medianItems: Double = 0.0,
+    @SerialName("median_days_between") val medianDaysBetween: Double? = null,
+    val biggest: TripRef? = null,
+    val buckets: List<TripBucket> = emptyList(),
+)
+
+@Serializable
+data class NewnessMonth(
+    val month: String,
+    val new: Double = 0.0,
+    val repeat: Double = 0.0,
+    @SerialName("new_items") val newItems: Int = 0,
+)
+
+@Serializable
+data class Newness(
+    @SerialName("counted_from") val countedFrom: String? = null,
+    @SerialName("new_spend") val newSpend: Double = 0.0,
+    @SerialName("repeat_spend") val repeatSpend: Double = 0.0,
+    @SerialName("new_share") val newShare: Double? = null,
+    @SerialName("new_items") val newItems: Int = 0,
+    val monthly: List<NewnessMonth> = emptyList(),
+)
+
+@Serializable
+data class InflationDriver(
+    @SerialName("item_number") val itemNumber: String,
+    val name: String? = null,
+    @SerialName("prior_price") val priorPrice: Double,
+    val price: Double,
+    val impact: Double,
+)
+
+@Serializable
+data class InflationMonth(val month: String, @SerialName("vs_usual_pct") val vsUsualPct: Double)
+
+@Serializable
+data class Inflation(
+    @SerialName("period_start") val periodStart: String = "",
+    @SerialName("prior_start") val priorStart: String = "",
+    @SerialName("prior_end") val priorEnd: String = "",
+    @SerialName("items_compared") val itemsCompared: Int = 0,
+    val paid: Double = 0.0,
+    @SerialName("at_prior_prices") val atPriorPrices: Double = 0.0,
+    @SerialName("change_pct") val changePct: Double? = null,
+    val drivers: List<InflationDriver> = emptyList(),
+    val monthly: List<InflationMonth> = emptyList(),
+)
+
+@Serializable
 data class Overview(
     val summary: Summary = Summary(),
     val monthly: List<Month> = emptyList(),
     val categories: List<Category> = emptyList(),
+    val basket: Basket = Basket(),
+    val newness: Newness = Newness(),
+    val inflation: Inflation = Inflation(),
+)
+
+@Serializable
+data class RestockItem(
+    @SerialName("item_number") val itemNumber: String,
+    val name: String? = null,
+    @SerialName("days_bought") val daysBought: Int = 0,
+    @SerialName("every_days") val everyDays: Int = 0,
+    @SerialName("last_bought") val lastBought: String,
+    @SerialName("days_since") val daysSince: Int = 0,
+    @SerialName("due_on") val dueOn: String,
+    @SerialName("due_in") val dueIn: Int = 0,
+    @SerialName("usual_units") val usualUnits: Double = 0.0,
+    @SerialName("last_price") val lastPrice: Double? = null,
 )
 
 @Serializable
@@ -83,6 +167,7 @@ data class ItemStat(
     val units: Double = 0.0,
     val purchases: Int = 0,
     @SerialName("avg_unit_price") val avgUnitPrice: Double? = null,
+    @SerialName("first_bought") val firstBought: String? = null,
 )
 
 @Serializable
@@ -99,6 +184,7 @@ data class PriceChange(
 
 @Serializable
 data class Insights(
+    @SerialName("new_items") val newItems: List<ItemStat> = emptyList(),
     @SerialName("top_spent") val topSpent: List<ItemStat> = emptyList(),
     @SerialName("most_purchased") val mostPurchased: List<ItemStat> = emptyList(),
     @SerialName("most_expensive") val mostExpensive: List<ItemStat> = emptyList(),

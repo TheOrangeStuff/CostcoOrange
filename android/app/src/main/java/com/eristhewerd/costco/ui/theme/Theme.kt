@@ -11,6 +11,7 @@ val CostcoBlue = Color(0xFF005DAA)
 val CostcoRed = Color(0xFFE31837)
 val OnlineTeal = Color(0xFF00897B)
 val SavingsGreen = Color(0xFF2E7D32)
+val NewAmber = Color(0xFFF9A825)
 
 private val Light = lightColorScheme(
     primary = CostcoBlue,

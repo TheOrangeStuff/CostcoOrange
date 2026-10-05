@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -154,3 +154,40 @@ def test_logs_collect_app_reports_and_sync_failures():
         assert "Costco said no" in logs[0]["message"] and logs[0]["source"] == "server"
         app_logs = c.get("/api/logs?source=app", headers=h).json()
         assert [(l["message"], l["username"], l["device"]) for l in app_logs] == [("POST /api/sync failed", "dad", "Pixel")]
+
+
+def test_habits_restock_inflation_basket_newness():
+    today = date(2026, 9, 30)
+    receipts = []
+    # Milk every 10 days for a year; its price goes from 4.00 to 4.40 in 2026.
+    d = date(2025, 6, 1)
+    while d <= date(2026, 9, 20):
+        price = 4.40 if d.year == 2026 else 4.00
+        receipts.append(receipt(f"M{d}", d.isoformat(), [item("100", "MILK", 2, 2 * price, price)]))
+        d += timedelta(days=10)
+    # Trips that also pick up something new, well past the warm-up period.
+    receipts.append(receipt("T1", "2026-08-01", [item("200", "TV", 1, 499.99), item("100", "MILK", 1, 4.40)]))
+    receipts.append(receipt("T2", "2026-09-01", [item("300", "COUCH", 1, 899.99)]))
+    with db.session() as conn:
+        for r in receipts:
+            sync.store_receipt(conn, r)
+
+    with db.session() as conn:
+        due = analytics.restock(conn, today)
+        assert [r["item_number"] for r in due] == ["100"]
+        assert due[0]["every_days"] == 10 and due[0]["last_bought"] == "2026-09-14" and due[0]["due_in"] == -6
+
+        inf = analytics.inflation(conn, "2026-01-01", "2026-06-30", today)
+        assert inf["items_compared"] == 1 and inf["change_pct"] == 10.0
+        assert inf["drivers"][0]["item_number"] == "100" and inf["drivers"][0]["impact"] > 0
+        months = {m["month"]: m["vs_usual_pct"] for m in analytics.inflation(conn, None, None, today)["monthly"]}
+        assert months["2025-07"] < 0 < months["2026-07"]
+
+        b = analytics.basket(conn, "2026-08-01", "2026-09-30")
+        assert b["biggest"]["barcode"] == "T2" and b["buckets"][-1]["trips"] == 2
+
+        n = analytics.newness(conn, None, None)
+        assert n["counted_from"] == "2025-08-30"
+        assert n["new_spend"] == round(499.99 + 899.99, 2) and n["new_items"] == 2
+        ins = analytics.insights(conn, None, None)
+        assert [i["item_number"] for i in ins["new_items"]] == ["300", "200"]

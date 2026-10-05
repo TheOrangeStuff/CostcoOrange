@@ -34,33 +34,49 @@ import com.eristhewerd.costco.data.Month
 import com.eristhewerd.costco.data.PricePoint
 import com.eristhewerd.costco.ui.theme.OnlineTeal
 import java.time.YearMonth
+import kotlin.math.roundToInt
 import java.time.format.DateTimeFormatter
 
-private fun monthLabel(m: String, withYear: Boolean = false): String = runCatching {
+fun monthLabel(m: String, withYear: Boolean = false): String = runCatching {
     YearMonth.parse(m).format(DateTimeFormatter.ofPattern(if (withYear) "MMM yyyy" else "MMM"))
 }.getOrDefault(m)
 
 /** Stacked warehouse/online spend per month. Tap a bar to read its numbers. */
 @Composable
 fun MonthlyBars(months: List<Month>, modifier: Modifier = Modifier) {
+    StackedMonthBars(
+        months.map { it.month }, months.map { it.warehouse }, months.map { it.online },
+        "Warehouse", "Online", MaterialTheme.colorScheme.primary, OnlineTeal, modifier,
+    ) { i ->
+        val m = months[i]
+        "${monthLabel(m.month, true)}: ${money(m.total)}" to
+            "Warehouse ${money(m.warehouse)} · ${m.trips} trips · Online ${money(m.online)}"
+    }
+}
+
+/** Two series stacked per month ([lower] at the bottom). Tap a bar to read its numbers via [describe]. */
+@Composable
+fun StackedMonthBars(
+    months: List<String>,
+    lower: List<Double>,
+    upper: List<Double>,
+    lowerLabel: String,
+    upperLabel: String,
+    lowerColor: Color,
+    upperColor: Color,
+    modifier: Modifier = Modifier,
+    describe: (Int) -> Pair<String, String>,
+) {
     if (months.isEmpty()) return
-    val warehouseColor = MaterialTheme.colorScheme.primary
-    val onlineColor = OnlineTeal
     val selectedColor = MaterialTheme.colorScheme.tertiary
     var selected by remember(months) { mutableStateOf(months.lastIndex) }
-    val max = (months.maxOf { it.warehouse + maxOf(it.online, 0.0) }).coerceAtLeast(1.0)
+    val max = months.indices.maxOf { maxOf(lower[it], 0.0) + maxOf(upper[it], 0.0) }.coerceAtLeast(1.0)
 
     Column(modifier.padding(horizontal = 16.dp)) {
-        months.getOrNull(selected)?.let { m ->
-            Text(
-                "${monthLabel(m.month, true)}: ${money(m.total)}",
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                "Warehouse ${money(m.warehouse)} · ${m.trips} trips · Online ${money(m.online)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        if (selected in months.indices) {
+            val (title, sub) = describe(selected)
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Canvas(
             Modifier
@@ -76,22 +92,22 @@ fun MonthlyBars(months: List<Month>, modifier: Modifier = Modifier) {
         ) {
             val slot = size.width / months.size
             val barWidth = (slot * 0.7f).coerceAtMost(40.dp.toPx())
-            months.forEachIndexed { i, m ->
+            months.indices.forEach { i ->
                 val x = i * slot + (slot - barWidth) / 2
-                val wh = (maxOf(m.warehouse, 0.0) / max * size.height).toFloat()
-                val on = (maxOf(m.online, 0.0) / max * size.height).toFloat()
+                val lo = (maxOf(lower[i], 0.0) / max * size.height).toFloat()
+                val up = (maxOf(upper[i], 0.0) / max * size.height).toFloat()
                 val alpha = if (i == selected) 1f else 0.55f
                 drawRoundRect(
-                    color = warehouseColor.copy(alpha = alpha),
-                    topLeft = Offset(x, size.height - wh),
-                    size = Size(barWidth, wh),
+                    color = lowerColor.copy(alpha = alpha),
+                    topLeft = Offset(x, size.height - lo),
+                    size = Size(barWidth, lo),
                     cornerRadius = CornerRadius(4f),
                 )
-                if (on > 0) {
+                if (up > 0) {
                     drawRoundRect(
-                        color = onlineColor.copy(alpha = alpha),
-                        topLeft = Offset(x, size.height - wh - on),
-                        size = Size(barWidth, on),
+                        color = upperColor.copy(alpha = alpha),
+                        topLeft = Offset(x, size.height - lo - up),
+                        size = Size(barWidth, up),
                         cornerRadius = CornerRadius(4f),
                     )
                 }
@@ -101,12 +117,56 @@ fun MonthlyBars(months: List<Month>, modifier: Modifier = Modifier) {
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(monthLabel(months.first().month, true), style = MaterialTheme.typography.labelSmall)
-            if (months.size > 1) Text(monthLabel(months.last().month, true), style = MaterialTheme.typography.labelSmall)
+            Text(monthLabel(months.first(), true), style = MaterialTheme.typography.labelSmall)
+            if (months.size > 1) Text(monthLabel(months.last(), true), style = MaterialTheme.typography.labelSmall)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 4.dp)) {
-            Legend(warehouseColor, "Warehouse")
-            Legend(onlineColor, "Online")
+            Legend(lowerColor, lowerLabel)
+            Legend(upperColor, upperLabel)
+        }
+    }
+}
+
+/** Percent above/below a baseline per month, as a line around a 0% rule. Tap to read a month. */
+@Composable
+fun PercentLine(months: List<String>, values: List<Double>, modifier: Modifier = Modifier, describe: (Int) -> String) {
+    if (months.size < 2) return
+    val color = MaterialTheme.colorScheme.primary
+    val ruleColor = MaterialTheme.colorScheme.outlineVariant
+    val selectedColor = MaterialTheme.colorScheme.tertiary
+    var selected by remember(months) { mutableStateOf(months.lastIndex) }
+    val reach = values.maxOf { kotlin.math.abs(it) }.coerceAtLeast(1.0)
+
+    Column(modifier.padding(horizontal = 16.dp)) {
+        Text(describe(selected), style = MaterialTheme.typography.titleSmall)
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .padding(vertical = 8.dp)
+                .pointerInput(months) {
+                    detectTapGestures { pos ->
+                        val step = size.width / (months.size - 1).toFloat()
+                        selected = (pos.x / step).roundToInt().coerceIn(0, months.lastIndex)
+                    }
+                },
+        ) {
+            val inset = 4.dp.toPx()
+            val step = (size.width - 2 * inset) / (months.size - 1)
+            fun y(v: Double) = (size.height / 2 - (size.height / 2 - inset) * (v / reach)).toFloat()
+            drawLine(ruleColor, Offset(0f, y(0.0)), Offset(size.width, y(0.0)), strokeWidth = 1.dp.toPx())
+            val path = Path().apply {
+                moveTo(inset, y(values[0]))
+                values.drop(1).forEachIndexed { i, v -> lineTo(inset + (i + 1) * step, y(v)) }
+            }
+            drawPath(path, color, style = Stroke(width = 3.dp.toPx()))
+            values.forEachIndexed { i, v ->
+                drawCircle(if (i == selected) selectedColor else color, inset, Offset(inset + i * step, y(v)))
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(monthLabel(months.first(), true), style = MaterialTheme.typography.labelSmall)
+            Text(monthLabel(months.last(), true), style = MaterialTheme.typography.labelSmall)
         }
     }
 }

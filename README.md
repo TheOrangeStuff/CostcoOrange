@@ -88,7 +88,8 @@ Back it up: losing it means every phone must uninstall to update. Local signed b
 
 `ScreenshotTest` renders the real screens with Robolectric/Roborazzi into
 `app/build/outputs/roborazzi/`. It needs a backend with data: seed a throwaway DB (separate
-`COSTCO_DATA_DIR`), run it on another port, then
+`COSTCO_DATA_DIR`) with a `costco_auth` row so the app doesn't jump to the link screen, run it on
+another port, then
 `DEMO_SERVER=http://127.0.0.1:8748 DEMO_TOKEN=<token> ./gradlew testDebugUnitTest`.
 
 ## Known gaps

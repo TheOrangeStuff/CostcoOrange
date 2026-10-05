@@ -27,11 +27,14 @@ import com.eristhewerd.costco.data.Insights
 import com.eristhewerd.costco.data.ItemDetail
 import com.eristhewerd.costco.data.ItemStat
 import com.eristhewerd.costco.data.PriceChange
+import com.eristhewerd.costco.data.RestockItem
 import com.eristhewerd.costco.ui.theme.CostcoRed
 import com.eristhewerd.costco.ui.theme.SavingsGreen
+import kotlinx.serialization.builtins.ListSerializer
 
 private enum class ItemTab(val label: String) {
-    SPENT("Most spent"), BOUGHT("Most bought"), PRICIEST("Priciest"), UP("Price ↑"), DOWN("Price ↓")
+    SPENT("Most spent"), BOUGHT("Most bought"), RESTOCK("Restock"), NEW("New to you"), PRICIEST("Priciest"),
+    UP("Price ↑"), DOWN("Price ↓")
 }
 
 @Composable
@@ -43,7 +46,8 @@ fun ItemsScreen(api: Api, range: RangePreset, onRange: (RangePreset) -> Unit, on
     var tab by rememberSaveable { mutableStateOf(ItemTab.SPENT) }
 
     Column {
-        RangeChips(range, onRange)
+        // Restock looks at all of history to find a rhythm, so the range doesn't apply.
+        if (tab != ItemTab.RESTOCK) RangeChips(range, onRange)
         Row(
             Modifier
                 .horizontalScroll(rememberScrollState())
@@ -54,14 +58,27 @@ fun ItemsScreen(api: Api, range: RangePreset, onRange: (RangePreset) -> Unit, on
                 FilterChip(selected = t == tab, onClick = { tab = t }, label = { Text(t.label) })
             }
         }
+        if (tab == ItemTab.RESTOCK) {
+            RestockList(api, onItem)
+            return@Column
+        }
         LoadContent(load) { data ->
             LazyColumn {
                 when (tab) {
+                    ItemTab.RESTOCK -> Unit
                     ItemTab.SPENT -> items(data.topSpent) { s ->
                         StatRow(s, "${units(s.units)} bought", money(s.spend), onItem)
                     }
                     ItemTab.BOUGHT -> items(data.mostPurchased) { s ->
                         StatRow(s, "${money(s.spend)} total", "${s.purchases}×", onItem)
+                    }
+                    ItemTab.NEW -> items(data.newItems) { s ->
+                        StatRow(
+                            s,
+                            "First bought ${prettyDate(s.firstBought)}" + if (s.purchases > 1) " · bought ${s.purchases}×" else "",
+                            money(s.spend),
+                            onItem,
+                        )
                     }
                     ItemTab.PRICIEST -> items(data.mostExpensive) { s ->
                         StatRow(s, "${units(s.units)} bought", money(s.avgUnitPrice ?: 0.0), onItem)
@@ -69,6 +86,48 @@ fun ItemsScreen(api: Api, range: RangePreset, onRange: (RangePreset) -> Unit, on
                     ItemTab.UP -> items(data.priceIncreases) { c -> ChangeRow(c, onItem) }
                     ItemTab.DOWN -> items(data.priceDecreases) { c -> ChangeRow(c, onItem) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RestockList(api: Api, onItem: (String) -> Unit) {
+    val path = "/api/restock"
+    val ser = ListSerializer(RestockItem.serializer())
+    val load = rememberLoad(path) { cachedOnly -> if (cachedOnly) api.cached(path, ser) else api.get(path, ser) }
+    LoadContent(load) { list ->
+        LazyColumn {
+            item {
+                Text(
+                    "Things you buy regularly, and when you'd usually buy them next.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (list.isEmpty()) item { Text("Nothing bought regularly yet.", Modifier.padding(16.dp)) }
+            items(list) { r ->
+                ListItem(
+                    headlineContent = { Text(r.name ?: r.itemNumber, maxLines = 2) },
+                    supportingContent = {
+                        Text(listOfNotNull(
+                            "Every ~${r.everyDays} days",
+                            "last ${prettyDate(r.lastBought)} (${r.daysSince}d ago)",
+                            r.lastPrice?.let { "${units(r.usualUnits)} × ${money(it)}" },
+                        ).joinToString(" · "))
+                    },
+                    trailingContent = {
+                        val (label, color) = when {
+                            r.dueIn < 0 -> "${-r.dueIn}d overdue" to CostcoRed
+                            r.dueIn == 0 -> "Due today" to CostcoRed
+                            else -> "in ${r.dueIn}d" to MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Text(label, color = color, style = MaterialTheme.typography.titleSmall)
+                    },
+                    modifier = Modifier.clickable { onItem(r.itemNumber) },
+                )
+                HorizontalDivider()
             }
         }
     }

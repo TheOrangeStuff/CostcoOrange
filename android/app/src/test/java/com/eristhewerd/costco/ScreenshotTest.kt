@@ -4,6 +4,8 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.eristhewerd.costco.ui.AppRoot
@@ -44,10 +46,20 @@ class ScreenshotTest {
             compose.waitForIdle()
             compose.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
         }
-        shot("1-spending", "By department")
+        shot("1-spending", "By month")
+        scrollTo("Typical trip")
+        shot("1b-trips", "Biggest trip")
+        scrollTo("KS ORG EGGS")
+        shot("1c-prices", "usual prices")
+        scrollTo("First time")
+        shot("1d-newness", "never bought before")
         compose.onNodeWithText("Items").performClick()
         shot("2-items", "bought")
-        compose.onNodeWithText("Price ↑").performClick()
+        compose.onNodeWithText("Restock").performClick()
+        shot("2b-restock", "Every ~")
+        compose.onNodeWithText("New to you").performClick()
+        shot("2c-new", "First bought")
+        compose.onNodeWithText("Price ↑").performScrollTo().performClick()
         shot("3-price-up", "KS COFFEE")
         compose.onNodeWithText("KS COFFEE").performClick()
         shot("4-item", "Shelf price")
@@ -58,6 +70,11 @@ class ScreenshotTest {
         shot("6-receipts", "HUNTSVILLE")
         onNodeWithContentDescriptionSafe("Settings")
         shot("7-settings", "Sync now")
+    }
+
+    private fun scrollTo(text: String) {
+        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction())
+            .performScrollToNode(hasText(text, substring = true))
     }
 
     private fun onNodeWithContentDescriptionSafe(d: String) {

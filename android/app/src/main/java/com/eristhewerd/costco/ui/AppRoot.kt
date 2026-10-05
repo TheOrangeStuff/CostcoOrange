@@ -146,7 +146,9 @@ private fun MainScaffold(api: Api, pendingRoute: String?, onRouteConsumed: () ->
     ) { padding ->
         NavHost(nav, startDestination = "overview", modifier = Modifier.padding(padding)) {
             val openItem: (String) -> Unit = { nav.navigate("item/$it") }
-            composable("overview") { OverviewScreen(api, range, setRange) }
+            composable("overview") {
+                OverviewScreen(api, range, setRange, openItem) { nav.navigate("receipt/$it") }
+            }
             composable("items") { ItemsScreen(api, range, setRange, openItem) }
             composable("savings") { SavingsScreen(api, openItem) }
             composable("receipts") {

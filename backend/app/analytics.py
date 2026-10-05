@@ -6,6 +6,8 @@ reported as a single figure and kept out of everything else.
 """
 
 import sqlite3
+import statistics
+from collections import defaultdict
 from datetime import date, timedelta
 
 from app import config, db
@@ -14,6 +16,29 @@ CANCELLED = "LOWER(COALESCE(o.status, '')) NOT LIKE '%cancel%'"
 
 # Net paid per warehouse line, shelf price minus instant savings.
 NET = "(ri.amount + ri.discount)"
+
+# Every line that was bought (not returned), warehouse and online, as
+# (item_number, d, units, spend, unit_price, src).
+BOUGHT_LINES = f"""
+    SELECT ri.item_number, r.txn_date AS d, ri.units, {NET} AS spend, ri.unit_price, 'warehouse' AS src
+    FROM receipt_items ri JOIN receipts r USING (barcode)
+    WHERE r.channel = 'warehouse' AND ri.is_gas = 0 AND ri.units > 0 AND r.total > 0
+    UNION ALL
+    SELECT oi.item_number, o.order_date, COALESCE(oi.quantity, 1), COALESCE(oi.amount, 0), oi.unit_price, 'online'
+    FROM online_items oi JOIN online_orders o USING (order_number)
+    WHERE {CANCELLED} AND oi.item_number IS NOT NULL
+"""
+
+# Everything looks "new" at the start of the history, so first-time-purchase
+# stats only count from this many days after the earliest receipt.
+NEWNESS_WARMUP_DAYS = 90
+
+# An item counts as a regular after this many separate purchase days, and as
+# dropped once it's gone this many typical intervals without a purchase.
+RESTOCK_MIN_DAYS = 3
+RESTOCK_LAPSED_FACTOR = 3
+
+TRIP_BUCKETS = [0, 50, 100, 150, 200, 300, 500]
 
 
 def _range(start: str | None, end: str | None) -> tuple[str, str]:
@@ -229,9 +254,11 @@ def _names(conn: sqlite3.Connection, item_numbers: list[str]) -> dict[str, str]:
         return {}
     marks = ",".join("?" * len(item_numbers))
     rows = conn.execute(
-        f"SELECT ri.item_number, COALESCE(MAX(p.name), MAX(ri.description)) AS name FROM receipt_items ri "
-        f"LEFT JOIN products p ON p.item_number = ri.item_number WHERE ri.item_number IN ({marks}) "
-        "GROUP BY ri.item_number",
+        f"SELECT l.item_number, COALESCE(MAX(p.name), MAX(l.description)) AS name FROM ("
+        "SELECT item_number, description FROM receipt_items UNION ALL "
+        "SELECT item_number, description FROM online_items) l "
+        f"LEFT JOIN products p ON p.item_number = l.item_number WHERE l.item_number IN ({marks}) "
+        "GROUP BY l.item_number",
         item_numbers,
     ).fetchall()
     return {r["item_number"]: r["name"] for r in rows}
@@ -242,7 +269,14 @@ def insights(conn: sqlite3.Connection, start: str | None, end: str | None, limit
     stats = _item_stats(conn, lo, hi)
     bought = [s for s in stats if s["units"] > 0]
     changes = price_changes(conn, lo, hi)
+    firsts = _first_bought(conn)
+    counted_from = max(lo, _newness_start(conn) or hi)
+    new = [
+        {**s, "first_bought": firsts[s["item_number"]]}
+        for s in bought if counted_from <= firsts.get(s["item_number"], "") <= hi
+    ]
     return {
+        "new_items": sorted(new, key=lambda s: s["first_bought"], reverse=True)[:limit],
         "top_spent": sorted(bought, key=lambda s: s["spend"], reverse=True)[:limit],
         "most_purchased": sorted(bought, key=lambda s: (s["purchases"], s["units"]), reverse=True)[:limit],
         "most_expensive": sorted(
@@ -251,6 +285,207 @@ def insights(conn: sqlite3.Connection, start: str | None, end: str | None, limit
         "price_increases": [c for c in changes if c["change"] > 0][:limit],
         "price_decreases": sorted((c for c in changes if c["change"] < 0), key=lambda c: c["change_pct"])[:limit],
     }
+
+
+def _first_bought(conn: sqlite3.Connection) -> dict[str, str]:
+    return {r[0]: r[1] for r in conn.execute(f"SELECT item_number, MIN(d) FROM ({BOUGHT_LINES}) GROUP BY item_number")}
+
+
+def _newness_start(conn: sqlite3.Connection) -> str | None:
+    """First date where "never bought before" means something (see NEWNESS_WARMUP_DAYS)."""
+    earliest = conn.execute(f"SELECT MIN(d) FROM ({BOUGHT_LINES})").fetchone()[0]
+    if not earliest:
+        return None
+    return (date.fromisoformat(earliest) + timedelta(days=NEWNESS_WARMUP_DAYS)).isoformat()
+
+
+def basket(conn: sqlite3.Connection, start: str | None, end: str | None) -> dict:
+    """What a warehouse trip looks like: size distribution, typical trip, biggest trip."""
+    lo, hi = _range(start, end)
+    trips = [
+        dict(r) for r in conn.execute(
+            "SELECT r.barcode, r.txn_date AS date, r.warehouse_name AS warehouse, r.total, "
+            "COALESCE((SELECT SUM(ri.units) FROM receipt_items ri WHERE ri.barcode = r.barcode "
+            "AND ri.is_gas = 0 AND ri.units > 0), 0) AS items "
+            "FROM receipts r WHERE r.channel = 'warehouse' AND r.total > 0 AND r.txn_date BETWEEN ? AND ? "
+            "ORDER BY r.txn_date",
+            (lo, hi),
+        )
+    ]
+    if not trips:
+        return {"trips": 0, "buckets": []}
+
+    edges = TRIP_BUCKETS + [float("inf")]
+    buckets = []
+    for a, b in zip(edges, edges[1:]):
+        inside = [t["total"] for t in trips if a <= t["total"] < b]
+        label = f"${a}+" if b == float("inf") else (f"Under ${b}" if a == 0 else f"${a}–{b}")
+        buckets.append({"label": label, "trips": len(inside), "spend": round(sum(inside), 2)})
+
+    days = sorted({date.fromisoformat(t["date"]) for t in trips})
+    gaps = [(b - a).days for a, b in zip(days, days[1:])]
+    biggest = max(trips, key=lambda t: t["total"])
+    totals = [t["total"] for t in trips]
+    items = [t["items"] for t in trips]
+    return {
+        "trips": len(trips),
+        "avg_total": round(statistics.mean(totals), 2),
+        "median_total": round(statistics.median(totals), 2),
+        "avg_items": round(statistics.mean(items), 1),
+        "median_items": statistics.median(items),
+        "median_days_between": statistics.median(gaps) if gaps else None,
+        "biggest": {**biggest, "total": round(biggest["total"], 2)},
+        "buckets": buckets,
+    }
+
+
+def newness(conn: sqlite3.Connection, start: str | None, end: str | None) -> dict:
+    """How much spending went to things you'd never bought before, by month."""
+    lo, hi = _range(start, end)
+    warm = _newness_start(conn)
+    if warm is None or max(lo, warm) > hi:
+        return {"counted_from": None, "monthly": []}
+    counted_from = max(lo, warm)
+    rows = conn.execute(
+        f"""
+        WITH lines AS ({BOUGHT_LINES}),
+        firsts AS (SELECT item_number, MIN(d) AS first FROM lines GROUP BY item_number)
+        SELECT substr(l.d, 1, 7) AS month,
+               SUM(CASE WHEN l.d = f.first THEN l.spend ELSE 0 END) AS new,
+               SUM(CASE WHEN l.d > f.first THEN l.spend ELSE 0 END) AS repeat,
+               COUNT(DISTINCT CASE WHEN l.d = f.first THEN l.item_number END) AS new_items
+        FROM lines l JOIN firsts f USING (item_number)
+        WHERE l.d BETWEEN ? AND ?
+        GROUP BY month ORDER BY month
+        """,
+        (counted_from, hi),
+    ).fetchall()
+    monthly = [
+        {"month": r["month"], "new": round(r["new"], 2), "repeat": round(r["repeat"], 2), "new_items": r["new_items"]}
+        for r in rows
+    ]
+    new = sum(m["new"] for m in monthly)
+    repeat = sum(m["repeat"] for m in monthly)
+    return {
+        "counted_from": counted_from,
+        "new_spend": round(new, 2),
+        "repeat_spend": round(repeat, 2),
+        "new_share": round(100 * new / (new + repeat), 1) if new + repeat > 0 else None,
+        "new_items": sum(m["new_items"] for m in monthly),
+        "monthly": monthly,
+    }
+
+
+def inflation(conn: sqlite3.Connection, start: str | None, end: str | None, today: date) -> dict:
+    """Your own price inflation, from warehouse shelf prices (before instant savings).
+
+    Headline: this period's basket (items also bought in the same-length period
+    just before) at this period's prices vs. the earlier prices. Monthly: what
+    you paid vs. each item's usual (all-history average) price, for items
+    bought on more than one day.
+    """
+    hi = date.fromisoformat(end) if end else today
+    lo = date.fromisoformat(start) if start else hi - timedelta(days=364)
+    length = (hi - lo).days + 1
+    prior_lo, prior_hi = lo - timedelta(days=length), lo - timedelta(days=1)
+
+    rows = conn.execute(
+        f"SELECT item_number, d, units, unit_price FROM ({BOUGHT_LINES}) "
+        "WHERE src = 'warehouse' AND unit_price > 0"
+    ).fetchall()
+
+    def avg_prices(a: date, b: date) -> dict[str, tuple[float, float]]:
+        """item -> (units, units-weighted shelf price) within [a, b]."""
+        units, cost = defaultdict(float), defaultdict(float)
+        for r in rows:
+            if a.isoformat() <= r["d"] <= b.isoformat():
+                units[r["item_number"]] += r["units"]
+                cost[r["item_number"]] += r["units"] * r["unit_price"]
+        return {i: (units[i], cost[i] / units[i]) for i in units}
+
+    now, before = avg_prices(lo, hi), avg_prices(prior_lo, prior_hi)
+    shared = [i for i in now if i in before]
+    paid = sum(now[i][0] * now[i][1] for i in shared)
+    at_prior = sum(now[i][0] * before[i][1] for i in shared)
+    names = _names(conn, shared)
+    drivers = sorted(
+        (
+            {
+                "item_number": i,
+                "name": names.get(i),
+                "prior_price": round(before[i][1], 2),
+                "price": round(now[i][1], 2),
+                "impact": round(now[i][0] * (now[i][1] - before[i][1]), 2),
+            }
+            for i in shared
+        ),
+        key=lambda d: abs(d["impact"]),
+        reverse=True,
+    )
+
+    usual = avg_prices(date.min, date.max)
+    days_bought = defaultdict(set)
+    for r in rows:
+        days_bought[r["item_number"]].add(r["d"])
+    month_paid, month_usual = defaultdict(float), defaultdict(float)
+    m_lo, m_hi = start or "0000-01-01", end or "9999-12-31"
+    for r in rows:
+        if len(days_bought[r["item_number"]]) > 1 and m_lo <= r["d"] <= m_hi:
+            m = r["d"][:7]
+            month_paid[m] += r["units"] * r["unit_price"]
+            month_usual[m] += r["units"] * usual[r["item_number"]][1]
+
+    return {
+        "period_start": lo.isoformat(),
+        "period_end": hi.isoformat(),
+        "prior_start": prior_lo.isoformat(),
+        "prior_end": prior_hi.isoformat(),
+        "items_compared": len(shared),
+        "paid": round(paid, 2),
+        "at_prior_prices": round(at_prior, 2),
+        "change_pct": round(100 * (paid / at_prior - 1), 1) if at_prior else None,
+        "drivers": [d for d in drivers if d["impact"] != 0][:10],
+        "monthly": [
+            {"month": m, "vs_usual_pct": round(100 * (month_paid[m] / month_usual[m] - 1), 1)}
+            for m in sorted(month_paid) if month_usual[m]
+        ],
+    }
+
+
+def restock(conn: sqlite3.Connection, today: date) -> list[dict]:
+    """Things you buy regularly, how often, and when you're next due to buy them."""
+    days: dict[str, dict[str, dict]] = defaultdict(dict)
+    for r in conn.execute(f"SELECT item_number, d, units, unit_price FROM ({BOUGHT_LINES}) ORDER BY d"):
+        day = days[r["item_number"]].setdefault(r["d"], {"units": 0.0, "price": None})
+        day["units"] += r["units"]
+        day["price"] = r["unit_price"] or day["price"]
+
+    out = []
+    for item, by_day in days.items():
+        if len(by_day) < RESTOCK_MIN_DAYS:
+            continue
+        dates = [date.fromisoformat(d) for d in by_day]
+        every = statistics.median((b - a).days for a, b in zip(dates, dates[1:]))
+        since = (today - dates[-1]).days
+        if every <= 0 or since > RESTOCK_LAPSED_FACTOR * every:
+            continue
+        due = dates[-1] + timedelta(days=round(every))
+        out.append({
+            "item_number": item,
+            "days_bought": len(dates),
+            "every_days": round(every),
+            "last_bought": dates[-1].isoformat(),
+            "days_since": since,
+            "due_on": due.isoformat(),
+            "due_in": (due - today).days,
+            "usual_units": statistics.median(d["units"] for d in by_day.values()),
+            "last_price": next((d["price"] for d in reversed(by_day.values()) if d["price"]), None),
+        })
+    names = _names(conn, [o["item_number"] for o in out])
+    for o in out:
+        o["name"] = names.get(o["item_number"])
+    out.sort(key=lambda o: (o["due_in"], o["every_days"]))
+    return out
 
 
 def price_adjustments(conn: sqlite3.Connection, today: date) -> list[dict]:
