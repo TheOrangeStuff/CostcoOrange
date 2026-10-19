@@ -49,7 +49,13 @@ cd backend && ~/.local/bin/uv sync && ~/.local/bin/uv run pytest -q    # local t
   `curl -H "Authorization: Bearer <token>" https://costco.eristhewerd.com/api/logs?limit=50`
   (`&source=app` or `&source=server` to filter).
 - Data lives in `/data/costco.db` (the appdata share). Back up that folder; never commit it. Raw
-  Costco payloads are kept, so history accumulates past Costco's ~2-year window.
+  Costco payloads are kept, so history accumulates past Costco's ~2-year window. Every distinct
+  payload Costco sends also goes into the append-only `payloads` table, even ones that no longer
+  parse, and an order refresh never blanks out stored values.
+- The server snapshots the database daily to `/data/backups/costco-YYYY-MM-DD.db` (keeps
+  `COSTCO_BACKUP_KEEP_DAYS`, default 30) and before any re-parse; `python -m app.cli backup`
+  takes one on demand. These sit on the same disk, so also copy appdata off the box (e.g. the
+  Appdata Backup plugin).
 - The first sync backfills 2 years silently; later syncs (every 2 hours) re-scan 45 days and
   create events for new receipts, new online orders and price drops. The app polls
   `/api/events` and turns them into notifications.

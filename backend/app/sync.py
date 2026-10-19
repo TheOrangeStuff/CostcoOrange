@@ -36,8 +36,10 @@ def _windows(start: date, end: date, days: int = 90):
 
 def store_receipt(conn: sqlite3.Connection, raw: dict) -> dict | None:
     """Insert a receipt if unseen. Returns the receipt row when it was new."""
+    db.archive_payload(conn, "receipt", raw.get("transactionBarcode"), raw)
     row, items = normalize_receipt(raw)
     if not row["barcode"] or not row["txn_date"]:
+        logger.warning("Kept a receipt Costco sent that couldn't be parsed (see payloads table)")
         return None
     exists = conn.execute("SELECT 1 FROM receipts WHERE barcode = ?", (row["barcode"],)).fetchone()
     if exists:
@@ -63,20 +65,28 @@ def _insert_receipt_items(conn: sqlite3.Connection, barcode: str, items: list[di
 
 
 def store_order(conn: sqlite3.Connection, raw: dict, detail: dict | None) -> tuple[dict, bool]:
-    """Insert or refresh an online order. Returns (row, was_new)."""
+    """Insert or refresh an online order. Returns (row, was_new).
+
+    A refresh never blanks out what's stored: missing dates/totals and an
+    empty item list from Costco keep the previous values."""
     row, items = normalize_order(raw, detail)
+    db.archive_payload(conn, "order", row["order_number"], raw)
+    if detail:
+        db.archive_payload(conn, "order_detail", row["order_number"], detail)
     existing = conn.execute(
         "SELECT order_number FROM online_orders WHERE order_number = ?", (row["order_number"],)
     ).fetchone()
     params = {**row, "raw": json.dumps(raw), "detail": json.dumps(detail) if detail else None}
     if existing:
         conn.execute(
-            "UPDATE online_orders SET order_date = :order_date, total = :total, "
-            "merchandise_total = COALESCE(:merchandise_total, merchandise_total), status = :status, "
+            "UPDATE online_orders SET order_date = COALESCE(NULLIF(:order_date, ''), order_date), "
+            "total = COALESCE(NULLIF(:total, 0), total), "
+            "merchandise_total = COALESCE(:merchandise_total, merchandise_total), "
+            "status = COALESCE(:status, status), "
             "raw = :raw, detail = COALESCE(:detail, detail) WHERE order_number = :order_number",
             params,
         )
-        if detail:
+        if detail and items:
             conn.execute("DELETE FROM online_items WHERE order_number = ?", (row["order_number"],))
     else:
         conn.execute(
@@ -85,7 +95,7 @@ def store_order(conn: sqlite3.Connection, raw: dict, detail: dict | None) -> tup
             ":first_seen)",
             {**params, "first_seen": db.now_iso()},
         )
-    if detail or not existing:
+    if (detail and items) or not existing:
         conn.executemany(
             "INSERT INTO online_items (order_number, line, item_number, description, unit_price, quantity, amount) "
             "VALUES (:order_number, :line, :item_number, :description, :unit_price, :quantity, :amount)",
@@ -94,9 +104,25 @@ def store_order(conn: sqlite3.Connection, raw: dict, detail: dict | None) -> tup
     return row, not existing
 
 
+# Bump when normalize.py changes how stored rows are derived; the server
+# re-parses everything once on startup. 2: gallons on fuel lines, car washes aren't fuel.
+NORMALIZE_VERSION = 2
+
+
+def renormalize_if_stale() -> None:
+    with db.session() as conn:
+        current = int(db.get_state(conn, "normalize_version") or 1)
+    if current >= NORMALIZE_VERSION:
+        return
+    logger.info("Re-parsing stored receipts (normalize version %s -> %s)", current, NORMALIZE_VERSION)
+    db.snapshot(f"before-renormalize-v{NORMALIZE_VERSION}")
+    renormalize_all()
+
+
 def renormalize_all() -> None:
     """Rebuild item rows from stored raw payloads (after a parsing fix)."""
     with db.session() as conn:
+        db.set_state(conn, "normalize_version", str(NORMALIZE_VERSION))
         for r in conn.execute("SELECT barcode, raw FROM receipts").fetchall():
             row, items = normalize_receipt(json.loads(r["raw"]))
             conn.execute("DELETE FROM receipt_items WHERE barcode = ?", (r["barcode"],))

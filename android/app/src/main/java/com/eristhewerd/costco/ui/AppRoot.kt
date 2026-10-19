@@ -104,6 +104,7 @@ private fun MainScaffold(api: Api, pendingRoute: String?, onRouteConsumed: () ->
     val title = when {
         route == "settings" -> "Settings"
         route == "link" -> "Link Costco"
+        route == "gas" -> "Gas"
         route?.startsWith("item/") == true -> "Item"
         route?.startsWith("receipt/") == true || route?.startsWith("order/") == true -> "Receipt"
         else -> tabs.firstOrNull { it.route == route }?.label ?: "Costco"
@@ -147,8 +148,11 @@ private fun MainScaffold(api: Api, pendingRoute: String?, onRouteConsumed: () ->
         NavHost(nav, startDestination = "overview", modifier = Modifier.padding(padding)) {
             val openItem: (String) -> Unit = { nav.navigate("item/$it") }
             composable("overview") {
-                OverviewScreen(api, range, setRange, openItem) { nav.navigate("receipt/$it") }
+                OverviewScreen(api, range, setRange, openItem, onGas = { nav.navigate("gas") }) {
+                    nav.navigate("receipt/$it")
+                }
             }
+            composable("gas") { GasScreen(api, range, setRange) { nav.navigate("receipt/$it") } }
             composable("items") { ItemsScreen(api, range, setRange, openItem) }
             composable("savings") { SavingsScreen(api, openItem) }
             composable("receipts") {

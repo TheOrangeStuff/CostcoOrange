@@ -4,6 +4,7 @@
     uv run python -m app.cli users
     uv run python -m app.cli sync                    # run a sync now, in the foreground
     uv run python -m app.cli renormalize             # rebuild item rows from stored raw data
+    uv run python -m app.cli backup                  # snapshot the database to <data>/backups now
 """
 
 import getpass
@@ -34,7 +35,11 @@ def main(argv: list[str]) -> int:
         logging.basicConfig(level=logging.INFO)
         print(json.dumps(sync.sync(), indent=2))
     elif argv[:1] == ["renormalize"]:
+        db.snapshot(f"before-renormalize-{db.now_iso()[:10]}")
         sync.renormalize_all()
+        print("Done")
+    elif argv[:1] == ["backup"]:
+        db.snapshot(f"manual-{db.now_iso().replace(':', '')}")
         print("Done")
     else:
         print(__doc__)

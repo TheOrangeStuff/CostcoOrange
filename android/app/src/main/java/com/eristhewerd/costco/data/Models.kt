@@ -299,3 +299,51 @@ data class Event(
     val body: String? = null,
     @SerialName("created_at") val createdAt: String,
 )
+
+@Serializable
+data class GasGroup(
+    val grade: String? = null,
+    val warehouse: String? = null,
+    val gallons: Double = 0.0,
+    val spend: Double = 0.0,
+    val fills: Int = 0,
+    @SerialName("avg_price") val avgPrice: Double? = null,
+)
+
+@Serializable
+data class GasMonth(
+    val month: String,
+    val fuel: Double = 0.0,
+    @SerialName("car_wash") val carWash: Double = 0.0,
+    val gallons: Double = 0.0,
+    @SerialName("avg_price") val avgPrice: Double? = null,
+)
+
+@Serializable
+data class GasFill(
+    val barcode: String,
+    val date: String,
+    val warehouse: String? = null,
+    val grade: String? = null,
+    val gallons: Double = 0.0,
+    val price: Double? = null,
+    val paid: Double = 0.0,
+)
+
+@Serializable
+data class Gas(
+    val spend: Double = 0.0,
+    @SerialName("fuel_spend") val fuelSpend: Double = 0.0,
+    @SerialName("car_wash_spend") val carWashSpend: Double = 0.0,
+    val gallons: Double = 0.0,
+    @SerialName("fill_ups") val fillUps: Int = 0,
+    @SerialName("avg_price") val avgPrice: Double? = null,
+    @SerialName("avg_gallons") val avgGallons: Double? = null,
+    @SerialName("median_days_between") val medianDaysBetween: Double? = null,
+    @SerialName("usual_grade") val usualGrade: String? = null,
+    @SerialName("price_history") val priceHistory: List<PricePoint> = emptyList(),
+    val grades: List<GasGroup> = emptyList(),
+    val stations: List<GasGroup> = emptyList(),
+    val monthly: List<GasMonth> = emptyList(),
+    val recent: List<GasFill> = emptyList(),
+)

@@ -44,6 +44,7 @@ fun OverviewScreen(
     range: RangePreset,
     onRange: (RangePreset) -> Unit,
     onItem: (String) -> Unit,
+    onGas: () -> Unit,
     onReceipt: (String) -> Unit,
 ) {
     val path = "/api/summary" + range.query()
@@ -71,9 +72,8 @@ fun OverviewScreen(
                                 sub = "${units(s.units)} bought")
                         }
                         if (s.gasSpend != 0.0) {
-                            Text("Gas & car wash (not counted above): ${money(s.gasSpend)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            StatCard("Gas & car wash", money(s.gasSpend), Modifier.fillMaxWidth().clickable(onClick = onGas),
+                                sub = "Not counted above · tap for gallons and prices")
                         }
                         if (s.dataFrom != null) {
                             Text("History on file: ${prettyDate(s.dataFrom)} – ${prettyDate(s.dataTo)}",

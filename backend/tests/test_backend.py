@@ -1,8 +1,9 @@
+import sqlite3
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from app import analytics, auth, db, sync
+from app import analytics, auth, config, db, sync
 from app.normalize import normalize_receipt
 
 
@@ -56,6 +57,53 @@ def test_gas_receipt_is_separate_channel():
     row, _ = normalize_receipt(receipt("G1", "2026-09-01", [item("300", "UNLEADED", 12.3, 40.0, 3.25)],
                                        doc="FuelReceipts"))
     assert row["channel"] == "gas"
+
+
+def test_fuel_gallons_come_from_fuel_quantity():
+    fuel = {"itemNumber": "300", "itemDescription01": "PREMIUM", "unit": 1, "amount": 52.47,
+            "itemUnitPriceAmount": 4.299, "fuelUnitQuantity": 12.205}
+    _, items = normalize_receipt(receipt("G1", "2026-09-01", [fuel], doc="FuelReceipts"))
+    assert items[0]["units"] == 12.205
+    assert items[0]["unit_price"] == 4.299
+
+
+def test_gas_analysis():
+    with db.session() as conn:
+        for raw in [
+            receipt("G1", "2026-08-01", [item("300", "UNLEADED", 10, 33.0, 3.30)], doc="FuelReceipts"),
+            receipt("G2", "2026-08-11", [item("300", "UNLEADED", 12, 36.0, 3.00)], doc="FuelReceipts"),
+            receipt("G3", "2026-09-01", [item("301", "PREMIUM", 8, 32.0, 4.00),
+                                         item("400", "PREMIUM WASH", 1, 12.0, 12.0, dept=None)], doc="FuelReceipts"),
+            receipt("B1", "2026-09-01", [item("111", "KS ORG EGGS", 1, 8.99)]),
+        ]:
+            sync.store_receipt(conn, raw)
+        g = analytics.gas(conn, None, None)
+        assert g["fill_ups"] == 3
+        assert g["gallons"] == 30
+        assert g["fuel_spend"] == 101.0
+        assert g["car_wash_spend"] == 12.0
+        assert g["spend"] == 113.0
+        assert g["avg_price"] == round(101 / 30, 3)
+        assert g["median_days_between"] == 15.5
+        assert g["usual_grade"] == "UNLEADED"
+        assert [p["unit_price"] for p in g["price_history"]] == [3.30, 3.00]
+        assert [m["month"] for m in g["monthly"]] == ["2026-08", "2026-09"]
+        assert g["monthly"][1]["car_wash"] == 12.0
+        assert g["recent"][0]["barcode"] == "G3"
+        assert analytics.gas(conn, "2026-09-01", None)["fill_ups"] == 1
+
+
+def test_stale_rows_are_reparsed_once():
+    raw = receipt("G1", "2026-09-01", [{"itemNumber": "300", "itemDescription01": "UNLEADED", "unit": 1,
+                                        "amount": 40.0, "itemUnitPriceAmount": 4.0, "fuelUnitQuantity": 10}],
+                  doc="FuelReceipts")
+    with db.session() as conn:
+        sync.store_receipt(conn, raw)
+        conn.execute("UPDATE receipt_items SET units = 1")
+    sync.renormalize_if_stale()
+    with db.session() as conn:
+        assert conn.execute("SELECT units FROM receipt_items").fetchone()[0] == 10
+        assert db.get_state(conn, "normalize_version") == str(sync.NORMALIZE_VERSION)
 
 
 def test_sync_backfill_then_notify_and_price_adjustment():
@@ -191,3 +239,36 @@ def test_habits_restock_inflation_basket_newness():
         assert n["new_spend"] == round(499.99 + 899.99, 2) and n["new_items"] == 2
         ins = analytics.insights(conn, None, None)
         assert [i["item_number"] for i in ins["new_items"]] == ["300", "200"]
+
+
+def test_costco_api_changes_never_lose_stored_data():
+    detail = {"orderPlacedDate": "2026-09-10", "orderTotal": 54.10, "merchandiseTotal": 49.99, "status": "Shipped",
+              "shipToAddress": [{"orderLineItems": [{"itemNumber": "555", "itemDescription": "Towels",
+                                                     "price": 49.99, "quantity": 1}]}]}
+    order = {"orderNumber": "O1", "orderPlacedDate": "2026-09-10T00:00:00", "orderTotal": 54.10, "status": "Shipped"}
+    with db.session() as conn:
+        sync.store_order(conn, order, detail)
+        # Costco renames its fields: the refresh parses to nothing useful.
+        sync.store_order(conn, {"orderNumber": "O1", "status": "Delivered"}, {"somethingNew": []})
+        o = conn.execute("SELECT order_date, total, status FROM online_orders").fetchone()
+        assert (o["order_date"], o["total"], o["status"]) == ("2026-09-10", 54.10, "Delivered")
+        assert conn.execute("SELECT description FROM online_items").fetchone()[0] == "Towels"
+
+        # A receipt we can't parse is still kept verbatim.
+        assert sync.store_receipt(conn, {"newBarcodeField": "X9", "lines": []}) is None
+        kinds = [r[0] for r in conn.execute("SELECT kind FROM payloads ORDER BY id")]
+        assert kinds == ["order", "order_detail", "order", "order_detail", "receipt"]
+        # Re-sending identical payloads doesn't grow the archive.
+        sync.store_order(conn, order, detail)
+        assert conn.execute("SELECT COUNT(*) FROM payloads").fetchone()[0] == 5
+
+
+def test_daily_backups_rotate(monkeypatch):
+    monkeypatch.setattr(config, "BACKUP_KEEP_DAYS", 3)
+    for day in range(1, 6):
+        db.daily_backup(date(2026, 10, day))
+    db.daily_backup(date(2026, 10, 5))
+    names = sorted(p.name for p in config.BACKUP_DIR.iterdir())
+    assert names == ["costco-2026-10-03.db", "costco-2026-10-04.db", "costco-2026-10-05.db"]
+    with sqlite3.connect(config.BACKUP_DIR / names[-1]) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE name = 'receipts'").fetchone()[0] == 1

@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 async def _scheduler() -> None:
     await asyncio.sleep(30)
     while True:
+        try:
+            await asyncio.to_thread(db.daily_backup)
+        except Exception:  # noqa: BLE001 - a failed backup must not stop syncing
+            logger.exception("Database backup failed")
         with db.session() as conn:
             linked = conn.execute(
                 "SELECT 1 FROM costco_auth WHERE id = 1 AND refresh_token IS NOT NULL"
@@ -34,6 +38,7 @@ async def _scheduler() -> None:
 async def lifespan(_: FastAPI):
     db.init()
     logs.install()
+    sync.renormalize_if_stale()
     task = asyncio.create_task(_scheduler())
     yield
     task.cancel()
@@ -141,6 +146,12 @@ def get_summary(start: str | None = None, end: str | None = None, user=User):
 def get_insights(start: str | None = None, end: str | None = None, limit: int = Query(10, le=100), user=User):
     with db.session() as conn:
         return analytics.insights(conn, start, end, limit)
+
+
+@app.get("/api/gas")
+def get_gas(start: str | None = None, end: str | None = None, user=User):
+    with db.session() as conn:
+        return analytics.gas(conn, start, end)
 
 
 @app.get("/api/restock")

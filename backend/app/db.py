@@ -1,11 +1,16 @@
 """SQLite storage. Raw Costco payloads are kept verbatim so history survives
 past Costco's 2-year window and can be re-parsed if normalization changes."""
 
+import hashlib
+import json
+import logging
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app import config
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -117,6 +122,16 @@ CREATE TABLE IF NOT EXISTS logs (
     username TEXT,
     device TEXT
 );
+-- Every distinct payload Costco has sent, never updated or deleted, so nothing
+-- is lost if Costco changes its API shape and parsing starts failing.
+CREATE TABLE IF NOT EXISTS payloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,                 -- receipt | order | order_detail
+    ref TEXT,
+    sha256 TEXT UNIQUE NOT NULL,
+    payload TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -185,3 +200,40 @@ def add_log(conn: sqlite3.Connection, source: str, level: str, message: str,
         (now_iso(), source, level, message, username, device),
     )
     conn.execute("DELETE FROM logs WHERE id <= ?", (cur.lastrowid - MAX_LOGS,))
+
+
+def archive_payload(conn: sqlite3.Connection, kind: str, ref: str | None, payload: dict) -> None:
+    """Keep a verbatim copy of a Costco payload (once per distinct content)."""
+    text = json.dumps(payload, sort_keys=True)
+    conn.execute(
+        "INSERT OR IGNORE INTO payloads (kind, ref, sha256, payload, fetched_at) VALUES (?, ?, ?, ?, ?)",
+        (kind, ref, hashlib.sha256(text.encode()).hexdigest(), text, now_iso()),
+    )
+
+
+def snapshot(name: str) -> None:
+    """Write a consistent copy of the database to <data>/backups/<name>.db."""
+    config.BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = config.BACKUP_DIR / f"{name}.db"
+    tmp = target.with_suffix(".db.tmp")
+    src = connect()
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    tmp.replace(target)
+    logger.info("Database backed up to %s", target)
+
+
+def daily_backup(today: date | None = None) -> None:
+    """Take today's snapshot if it doesn't exist yet and prune old daily ones."""
+    today = today or date.today()
+    if not (config.BACKUP_DIR / f"costco-{today.isoformat()}.db").exists():
+        snapshot(f"costco-{today.isoformat()}")
+    daily = sorted(config.BACKUP_DIR.glob("costco-????-??-??.db"))
+    for old in daily[:-config.BACKUP_KEEP_DAYS]:
+        old.unlink()

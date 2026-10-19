@@ -47,6 +47,11 @@ class ScreenshotTest {
             compose.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
         }
         shot("1-spending", "By month")
+        compose.onNodeWithText("Gas & car wash").performClick()
+        shot("1e-gas", "Price per gallon")
+        scrollTo("By station")
+        shot("1f-gas-stations", "fill-ups ·")
+        onNodeWithContentDescriptionSafe("Back")
         scrollTo("Typical trip")
         shot("1b-trips", "Biggest trip")
         scrollTo("KS ORG EGGS")

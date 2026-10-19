@@ -7,6 +7,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 DATA_DIR = Path(os.environ.get("COSTCO_DATA_DIR", BACKEND_DIR / "data"))
 DB_PATH = DATA_DIR / "costco.db"
+BACKUP_DIR = DATA_DIR / "backups"
+
+# Daily database snapshots kept in BACKUP_DIR.
+BACKUP_KEEP_DAYS = int(os.environ.get("COSTCO_BACKUP_KEEP_DAYS", "30"))
 
 # Costco's Azure AD B2C sign-in policy. Their site bumps the number now and then (201 -> 214 so
 # far); if linking starts failing, check the policy in the site's .../oauth2/v2.0/token request.

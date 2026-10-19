@@ -2,7 +2,7 @@
 
 Spend means what left your wallet: receipt totals (tax included, returns
 netted) plus non-cancelled online order totals. Gas and car wash are
-reported as a single figure and kept out of everything else.
+kept out of everything else and analyzed on their own (see gas()).
 """
 
 import sqlite3
@@ -584,6 +584,95 @@ def executive(conn: sqlite3.Connection, today: date) -> dict:
         "worth_it": reward > config.EXEC_UPGRADE_COST,
         "note": "Pre-tax merchandise, excluding gas. Costco also excludes tobacco, postage and some "
                 "services, which receipts don't flag, so treat this as an upper bound.",
+    }
+
+
+def gas(conn: sqlite3.Connection, start: str | None, end: str | None) -> dict:
+    """Fill-ups at Costco gas stations: gallons, price per gallon, by grade, station and month.
+
+    Fuel lines are gallons at a pump price; anything else on a gas-channel
+    receipt (car wash) is counted separately. Returns are netted.
+    """
+    lo, hi = _range(start, end)
+    lines = [
+        dict(r) for r in conn.execute(
+            f"SELECT r.barcode, r.txn_date AS date, r.txn_datetime, r.warehouse_name AS warehouse, "
+            f"ri.description AS grade, ri.units AS gallons, ri.unit_price AS price, {NET} AS paid, ri.is_gas "
+            "FROM receipt_items ri JOIN receipts r USING (barcode) "
+            "WHERE r.channel = 'gas' AND r.txn_date BETWEEN ? AND ? ORDER BY r.txn_date, r.txn_datetime, ri.line",
+            (lo, hi),
+        )
+    ]
+    fuel = [ln for ln in lines if ln["is_gas"]]
+    wash = sum(ln["paid"] for ln in lines if not ln["is_gas"])
+    gallons = sum(ln["gallons"] for ln in fuel)
+    fuel_spend = sum(ln["paid"] for ln in fuel)
+    # A fill-up is a receipt that bought fuel; split-grade receipts count once.
+    fills = [ln for ln in fuel if ln["gallons"] > 0]
+    fill_days = sorted({date.fromisoformat(f["date"]) for f in fills})
+    gaps = [(b - a).days for a, b in zip(fill_days, fill_days[1:])]
+    per_fill = defaultdict(float)
+    for f in fills:
+        per_fill[f["barcode"]] += f["gallons"]
+
+    def group(key: str) -> list[dict]:
+        acc: dict[str, dict] = {}
+        for ln in fuel:
+            g = acc.setdefault(ln[key] or "Unknown", {key: ln[key] or "Unknown", "gallons": 0.0, "spend": 0.0,
+                                                     "fills": set()})
+            g["gallons"] += ln["gallons"]
+            g["spend"] += ln["paid"]
+            if ln["gallons"] > 0:
+                g["fills"].add(ln["barcode"])
+        out = [
+            {**g, "gallons": round(g["gallons"], 3), "spend": round(g["spend"], 2), "fills": len(g["fills"]),
+             "avg_price": round(g["spend"] / g["gallons"], 3) if g["gallons"] > 0 else None}
+            for g in acc.values()
+        ]
+        out.sort(key=lambda g: g["gallons"], reverse=True)
+        return out
+
+    months: dict[str, dict] = {}
+    for ln in lines:
+        m = months.setdefault(ln["date"][:7], {"month": ln["date"][:7], "fuel": 0.0, "car_wash": 0.0, "gallons": 0.0})
+        if ln["is_gas"]:
+            m["fuel"] += ln["paid"]
+            m["gallons"] += ln["gallons"]
+        else:
+            m["car_wash"] += ln["paid"]
+    monthly = [
+        {"month": m["month"], "fuel": round(m["fuel"], 2), "car_wash": round(m["car_wash"], 2),
+         "gallons": round(m["gallons"], 3),
+         "avg_price": round(m["fuel"] / m["gallons"], 3) if m["gallons"] > 0 else None}
+        for m in sorted(months.values(), key=lambda m: m["month"])
+    ]
+
+    grades = group("grade")
+    usual = grades[0]["grade"] if grades else None
+    trend = [f for f in fills if f["grade"] == usual and f["price"]]
+    return {
+        "spend": round(fuel_spend + wash, 2),
+        "fuel_spend": round(fuel_spend, 2),
+        "car_wash_spend": round(wash, 2),
+        "gallons": round(gallons, 3),
+        "fill_ups": len(per_fill),
+        "avg_price": round(fuel_spend / gallons, 3) if gallons > 0 else None,
+        "avg_gallons": round(statistics.mean(per_fill.values()), 3) if per_fill else None,
+        "median_days_between": statistics.median(gaps) if gaps else None,
+        "usual_grade": usual,
+        "price_history": [
+            {"date": f["date"], "warehouse": f["warehouse"], "unit_price": f["price"], "units": f["gallons"],
+             "paid": round(f["paid"], 2)}
+            for f in trend
+        ],
+        "grades": grades,
+        "stations": group("warehouse"),
+        "monthly": monthly,
+        "recent": [
+            {"barcode": f["barcode"], "date": f["date"], "warehouse": f["warehouse"], "grade": f["grade"],
+             "gallons": f["gallons"], "price": f["price"], "paid": round(f["paid"], 2)}
+            for f in reversed(fills[-20:])
+        ],
     }
 
 

@@ -14,7 +14,8 @@ def _num(value, default: float = 0.0) -> float:
 
 def is_gas_item(item: dict) -> bool:
     desc = f"{item.get('itemDescription01') or ''} {item.get('itemDescription02') or ''}".lower()
-    return any(k in desc for k in GAS_KEYWORDS)
+    # Car wash packages can be named after fuel grades ("PREMIUM WASH").
+    return "wash" not in desc and any(k in desc for k in GAS_KEYWORDS)
 
 
 def receipt_date(receipt: dict) -> str:
@@ -46,6 +47,12 @@ def normalize_receipt(receipt: dict) -> tuple[dict, list[dict]]:
 
         if not number:
             continue
+        gas = is_gas_item(raw)
+        if gas:
+            # Fuel lines report gallons in fuelUnitQuantity; "unit" isn't reliably gallons.
+            units = _num(raw.get("fuelUnitQuantity"), 0.0) or units
+            if amount < 0:
+                units = -abs(units)
         unit_price = _num(raw.get("itemUnitPriceAmount"), 0.0) or (amount / units if units else None)
         items.append({
             "line": len(items),
@@ -56,7 +63,7 @@ def normalize_receipt(receipt: dict) -> tuple[dict, list[dict]]:
             "amount": amount,
             "unit_price": abs(unit_price) if unit_price else None,
             "discount": 0.0,
-            "is_gas": 1 if is_gas_item(raw) else 0,
+            "is_gas": 1 if gas else 0,
         })
 
     doc_type = (receipt.get("documentType") or "").lower()
